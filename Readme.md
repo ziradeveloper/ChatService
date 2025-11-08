@@ -1,3 +1,2 @@
-
-### API Deployed Site
-https://ChatService-805t.onrender.com/swagger/index.html
+dotnet ef migrations add InitialCreate
+dotnet ef update

@@ -1,115 +1,64 @@
-using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.AspNetCore.Mvc.Authorization;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.OpenApi.Models;
 using ChatService.Settings;
-using ChatService.Settings.JWT;
+using ChatService.Settings.Data;
+using ChatService.Settings.Hubs;
+using ChatService.Settings.IRegistration;
+using Google;
+using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// JWT Authentication Configuration
-var jwtSecret = builder.Configuration["Jwt:Secret"];
-if (string.IsNullOrEmpty(jwtSecret))
-{
-    throw new ArgumentNullException("Jwt:Secret", "JWT Secret must be configured in appsettings.json or environment variables.");
-}
+// Register services (AuthService, BrandsService, etc.)
+builder.Services.AddServices(); // This method will register services like AuthService, BrandsService, etc.
 
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
-    {
-        options.TokenValidationParameters = new Microsoft.IdentityModel.Tokens.TokenValidationParameters
-        {
-            ValidateIssuer = true,
-            ValidateAudience = true,
-            ValidIssuer = builder.Configuration["Jwt:Issuer"],
-            ValidAudience = builder.Configuration["Jwt:Audience"],
-            IssuerSigningKey = new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(System.Text.Encoding.UTF8.GetBytes(jwtSecret)),
-            ValidateLifetime = true,
-            ClockSkew = TimeSpan.Zero
-        };
-    });
+// Add services to the container.
 
-// Register services
-builder.Services.AddServices();
-
-// Add Controllers with global authorization
-builder.Services.AddControllers(options =>
-{
-    options.Filters.Add(new AuthorizeFilter());
-});
-
-// Add Swagger
+builder.Services.AddControllers();
+// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen(c =>
-{
-    c.SwaggerDoc("v1", new OpenApiInfo { Title = "StudyBuddy API", Version = "v1" });
+builder.Services.AddSwaggerGen();
 
-    c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
-    {
-        In = ParameterLocation.Header,
-        Description = "Please enter JWT with Bearer into the field",
-        Name = "Authorization",
-        Type = SecuritySchemeType.ApiKey
-    });
+// Add SignalR
+builder.Services.AddSignalR();
 
-    c.AddSecurityRequirement(new OpenApiSecurityRequirement
-    {
-        {
-            new OpenApiSecurityScheme
-            {
-                Reference = new OpenApiReference
-                {
-                    Type = ReferenceType.SecurityScheme,
-                    Id = "Bearer"
-                }
-            },
-            new string[] { }
-        }
-    });
-
-    c.MapType<IFormFile>(() => new OpenApiSchema
-    {
-        Type = "string",
-        Format = "binary"
-    });
-});
-
-// CORS setup
-builder.Services.Configure<CorsSettings>(builder.Configuration.GetSection("Cors"));
-var corsSettings = builder.Configuration.GetSection("Cors").Get<CorsSettings>();
-
+// Add CORS
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowSpecificOrigins", policy =>
+    options.AddPolicy("CorsPolicy", policy =>
     {
-        policy.WithOrigins(corsSettings.AllowedOrigins)
+        policy.WithOrigins("http://localhost:4200", "http://localhost:3000", "capacitor://localhost", "http://localhost", "https://localhost", "https://127.0.0.1", "http://10.0.2.2:4173", "https://studybuddyapi-805t.onrender.com")
               .AllowAnyHeader()
-              .AllowAnyMethod();
+              .AllowAnyMethod()
+              .AllowCredentials();
     });
 });
 
-// Database connection
-var connectionString = builder.Configuration.GetConnectionString("PostgreSQL");
-builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseNpgsql(connectionString));
+// Add Entity Framework with PostgreSQL
+builder.Services.AddDbContext<ApplicationDbContext>(options =>
+    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 var app = builder.Build();
 
-// Use Cors BEFORE Authentication
-app.UseCors("AllowSpecificOrigins");
-
-// Swagger setup
-if (app.Environment.IsDevelopment() || app.Environment.IsProduction())
+// Configure the HTTP request pipeline.
+if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
-    app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "StudyBuddy API v1"));
+    app.UseSwaggerUI();
 }
 
-// Custom middleware (if you have)
-app.UseMiddleware<TokenValidationMiddleware>();
+app.UseRouting();
+app.UseCors("CorsPolicy");
+app.UseHttpsRedirection();
 
-app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+app.MapHub<ChatHub>("/chatHub");
+
+// Apply database migrations
+using (var scope = app.Services.CreateScope())
+{
+    var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+    dbContext.Database.Migrate();
+}
+
 app.Run();
