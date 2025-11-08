@@ -18,7 +18,8 @@ namespace ChatService.Migrations
                     Id = table.Column<Guid>(type: "uuid", nullable: false),
                     Name = table.Column<string>(type: "text", nullable: false),
                     Username = table.Column<string>(type: "text", nullable: false),
-                    Password = table.Column<string>(type: "text", nullable: false)
+                    Password = table.Column<string>(type: "text", nullable: false),
+                    ConnectionKey = table.Column<string>(type: "text", nullable: false)
                 },
                 constraints: table =>
                 {
